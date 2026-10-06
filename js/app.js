@@ -1546,6 +1546,7 @@ function normalizeFixed(f) {
 
 const salaryFor = (month = monthKey()) => Math.max(0, Number(salaries[month]) || 0);
 const fixedTotal = () => fixed.reduce((s, f) => s + f.amount, 0);
+const paidFixedTotal = () => fixed.filter(f => f.paid).reduce((s, f) => s + f.amount, 0);
 
 function renderSalaryForm() {
   const month = el('s-month').value || monthKey();
@@ -1843,7 +1844,7 @@ function renderExternalList() {
   const sorted = [...external].sort((a, b) => (a.paid - b.paid) || (a.due || '').localeCompare(b.due || ''));
   box.innerHTML = sorted.map(x => `
     <div class="task ${x.paid ? 'is-done' : ''}" style="--p:var(--ok)">
-      <button class="check" data-act="toggle" aria-label="Marcar como recebida">${CHECK_SVG}</button>
+      <button class="check" data-act="toggle" data-id="${x.id}" aria-label="Marcar como recebida">${CHECK_SVG}</button>
       <div class="task-info">
         <span class="t-title">${escapeHtml(x.title)}</span>
         <div class="t-meta">
