@@ -1539,6 +1539,7 @@ function normalizeFixed(f) {
     amount: Math.max(0, Number(f.amount) || 0),
     category: String(f.category || '').trim(),
     day: Math.min(31, Math.max(1, Number(f.day) || 1)),
+    paid: !!f.paid,
     createdAt: f.createdAt || Date.now()
   };
 }
@@ -1634,6 +1635,15 @@ function saveFixedFromForm() {
   el('fx-title').focus();
 }
 
+function toggleFixed(id) {
+  const f = fixed.find(x => x.id === id);
+  if (!f) return;
+  f.paid = !f.paid;
+  persistFixed();
+  renderAll();
+  if (f.paid) toast(`"${f.title}" marcado como pago`, 'ok');
+}
+
 function deleteFixed(id) {
   const f = fixed.find(x => x.id === id);
   if (!f) return;
@@ -1650,19 +1660,22 @@ function renderFixedList() {
   const box = el('fixed-list');
   if (!box) return;
   const total = fixedTotal();
-  if (el('fixed-total')) el('fixed-total').textContent = total ? `${fmtBRL(total)}/mês` : 'nenhum cadastrado';
+  const paidCount = fixed.filter(f => f.paid).length;
+  if (el('fixed-total')) el('fixed-total').textContent = total ? `${paidCount}/${fixed.length} pagos · ${fmtBRL(total)}/mês` : 'nenhum cadastrado';
   if (!fixed.length) {
     box.innerHTML = '<li class="empty">Nenhum gasto fixo cadastrado. Adicione os que se repetem todo mês (aluguel, internet, plano...).</li>';
     return;
   }
-  const sorted = [...fixed].sort((a, b) => a.day - b.day || b.amount - a.amount);
+  const sorted = [...fixed].sort((a, b) => (a.paid - b.paid) || a.day - b.day || b.amount - a.amount);
   box.innerHTML = sorted.map(f => `
-    <div class="task" style="--p:${categoryColor(f.category)}">
+    <div class="task ${f.paid ? 'is-done' : ''}" style="--p:${categoryColor(f.category)}">
+      <button class="check" data-act="fx-toggle" data-id="${f.id}" aria-label="Marcar como pago">${CHECK_SVG}</button>
       <div class="task-info">
         <span class="t-title">${escapeHtml(f.title)}</span>
         <span class="t-meta">
           <span class="tag">dia ${f.day}</span>
           ${f.category ? `<span class="tag">${escapeHtml(f.category)}</span>` : ''}
+          ${f.paid ? '<span class="tag">pago ✓</span>' : ''}
         </span>
       </div>
       <span class="t-amount">${fmtBRL(f.amount)}</span>
@@ -2365,9 +2378,9 @@ function seedData() {
 
   salaries = { [monthKey()]: 7500 };
   fixed = [
-    normalizeFixed({ id: uid() + 'x1', title: 'Aluguel', amount: 2800, category: 'Moradia', day: 10 }),
+    normalizeFixed({ id: uid() + 'x1', title: 'Aluguel', amount: 2800, category: 'Moradia', day: 10, paid: true }),
     normalizeFixed({ id: uid() + 'x2', title: 'Internet fibra', amount: 99.90, category: 'Contas', day: 5 }),
-    normalizeFixed({ id: uid() + 'x3', title: 'Celular', amount: 89.90, category: 'Assinaturas', day: 8 }),
+    normalizeFixed({ id: uid() + 'x3', title: 'Celular', amount: 89.90, category: 'Assinaturas', day: 8, paid: true }),
     normalizeFixed({ id: uid() + 'x4', title: 'Streaming', amount: 45.90, category: 'Assinaturas', day: 15 })
   ];
   external = [
@@ -2575,6 +2588,7 @@ function bindEvents() {
       if (!f) return;
       if (fxBtn.dataset.act === 'fx-edit') openFixedForm(f);
       if (fxBtn.dataset.act === 'fx-del') deleteFixed(f.id);
+      if (fxBtn.dataset.act === 'fx-toggle') toggleFixed(f.id);
       return;
     }
 
