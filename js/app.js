@@ -9,7 +9,8 @@ const K = {
   wallpaper: 'findek.wallpaper',
   salary: 'findek.salary',
   fixed: 'findek.fixed',
-  external: 'findek.external'
+  external: 'findek.external',
+  investments: 'findek.investments'
 };
 
 const load = (k, fallback) => {
@@ -90,7 +91,9 @@ const defaultPrefs = {
   font: 'system',
   notesMode: 'split',
   accentCustom: false,
-  categoryColors: {}
+  categoryColors: {},
+  invCdi: 13.65,
+  invMonths: 60
 };
 
 let transactions = load(K.transactions, []);
@@ -105,6 +108,7 @@ let salaries = (() => {
 })();
 let fixed = (Array.isArray(load(K.fixed, [])) ? load(K.fixed, []) : []).map(normalizeFixed).filter(Boolean);
 let external = (Array.isArray(load(K.external, [])) ? load(K.external, []) : []).map(normalizeExternal).filter(Boolean);
+let investments = (Array.isArray(load(K.investments, [])) ? load(K.investments, []) : []).map(normalizeInvestment).filter(Boolean);
 
 const slug = name => String(name || '').trim().toLowerCase();
 
@@ -165,6 +169,7 @@ let ui = {
   editingGoalBudgetId: null,
   editingFixedId: null,
   editingExternalId: null,
+  editingInvestmentId: null,
   openGroups: new Set(),
   confirmAction: null
 };
@@ -179,6 +184,7 @@ const persistAll = () => {
   save(K.salary, salaries);
   save(K.fixed, fixed);
   save(K.external, external);
+  save(K.investments, investments);
 };
 const persistTransactions = () => save(K.transactions, transactions);
 const persistNotes = () => save(K.notes, notes);
@@ -188,6 +194,7 @@ const persistHistory = () => save(K.history, history);
 const persistSalary = () => save(K.salary, salaries);
 const persistFixed = () => save(K.fixed, fixed);
 const persistExternal = () => save(K.external, external);
+const persistInvestments = () => save(K.investments, investments);
 
 /* ================= dom ================= */
 const $ = sel => document.querySelector(sel);
@@ -1865,6 +1872,236 @@ function renderExternalList() {
     </div>`).join('');
 }
 
+/* ================= investimentos ================= */
+const INV_KIND = {
+  cdi: { label: '% do CDI', short: 'CDI' },
+  pct: { label: 'Taxa fixa a.a.', short: 'Fix. a.a.' },
+  crypto: { label: 'Cripto a.a.', short: 'Cripto' }
+};
+
+function normalizeInvestment(p) {
+  if (!p || !p.name || !p.bank) return null;
+  return {
+    id: p.id || uid(),
+    bank: String(p.bank).trim(),
+    name: String(p.name).trim(),
+    kind: INV_KIND[p.kind] ? p.kind : 'cdi',
+    rate: Math.max(0, Number(p.rate) || 0),
+    balance: Math.max(0, Number(p.balance) || 0),
+    aporte: Math.max(0, Number(p.aporte) || 0),
+    inFee: Math.max(0, Number(p.inFee) || 0),
+    outFee: Math.max(0, Number(p.outFee) || 0),
+    outFeePct: Math.max(0, Number(p.outFeePct) || 0),
+    createdAt: p.createdAt || Date.now()
+  };
+}
+
+const invAnnualRate = p => {
+  const cdi = Number(prefs.invCdi) || 0;
+  return p.kind === 'cdi' ? cdi * (p.rate / 100) : p.rate;
+};
+
+const invRateLabel = p => (p.kind === 'cdi' && p.rate ? `${p.rate}% do CDI` : `${p.rate}% a.a.`);
+const invEffLabel = p => `${invAnnualRate(p).toFixed(2).replace('.', ',')}% a.a.`;
+
+const invProject = (p, months = prefs.invMonths, from = p.balance) => {
+  const r = invAnnualRate(p) / 100;
+  const mr = r > 0 ? Math.pow(1 + r, 1 / 12) - 1 : 0;
+  let x = Math.max(0, from - p.inFee);
+  for (let i = 0; i < months; i++) x = (x + p.aporte) * (1 + mr);
+  const outPct = x * (p.outFeePct / 100);
+  const net = x - p.outFee - outPct;
+  return {
+    months,
+    invested: from + p.aporte * months,
+    inFee: p.inFee,
+    outFeePct: outPct,
+    fees: p.inFee + p.outFee + outPct,
+    gross: x,
+    net,
+    gain: net - (from + p.aporte * months)
+  };
+};
+
+const invMonthsLabel = m => (m === 1 ? '1 mês' : `${m} meses`);
+
+function renderInvestmentList() {
+  const box = el('inv-list');
+  if (!box) return;
+  const chip = el('inv-count-chip');
+  if (el('inv-cdi') && document.activeElement !== el('inv-cdi')) el('inv-cdi').value = prefs.invCdi || '';
+  if (el('inv-months') && document.activeElement !== el('inv-months')) el('inv-months').value = prefs.invMonths || '';
+  if (chip) chip.textContent = investments.length === 1 ? '1 produto' : `${investments.length} produtos`;
+  if (!investments.length) {
+    box.innerHTML = '<li class="empty">Nenhum produto cadastrado. Adicione bancos/plataformas como <b>Inter</b>, <b>Nubank</b>, <b>PagBank</b> e <b>Mercado Bitcoin</b> para comparar onde seu dinheiro rende mais.</li>';
+    return;
+  }
+  const sorted = [...investments].sort((a, b) => invAnnualRate(b) - invAnnualRate(a));
+  box.innerHTML = sorted.map(p => {
+    const hasFees = (p.inFee + p.outFee + p.outFeePct) > 0;
+    return `
+    <div class="task" style="--p:${p.kind === 'crypto' ? 'var(--warn)' : 'var(--ok)'}">
+      <div class="task-info">
+        <span class="t-title">${escapeHtml(p.bank)} · ${escapeHtml(p.name)}</span>
+        <div class="t-meta">
+          <span class="tag">${INV_KIND[p.kind].short}</span>
+          <span class="tag">${invRateLabel(p)}</span>
+          <span class="tag" title="Rentabilidade projetada por ano">≈ ${invEffLabel(p)}</span>
+          <span class="tag">saldo ${fmtBRL(p.balance)}</span>
+          <span class="tag">aporte ${fmtBRL(p.aporte)}/mês</span>
+          ${hasFees ? `<span class="tag" title="Taxas de entrada e resgate">taxas: ${fmtBRL(p.inFee)} + ${fmtBRL(p.outFee)} + ${p.outFeePct}%</span>` : '<span class="tag">sem taxas</span>'}
+        </div>
+      </div>
+      <span class="t-amount in">${fmtBRL(p.balance)}</span>
+      <div class="task-actions">
+        <button data-act="inv-edit" data-id="${p.id}" title="Editar">${EDIT_SVG}</button>
+        <button data-act="inv-del" data-id="${p.id}" class="del" title="Excluir">${DEL_SVG}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderInvestmentSim() {
+  const box = el('inv-sim');
+  const rank = el('inv-rank');
+  const chip = el('sim-chip');
+  if (!box || !rank) return;
+  const months = Math.max(1, Number(prefs.invMonths) || 60);
+  const cdi = Number(prefs.invCdi) || 0;
+  const cdiNote = `CDI projetado de ${cdi.toFixed(2).replace('.', ',')}% a.a.`;
+  const span = invMonthsLabel(months);
+
+  if (!investments.length) {
+    box.innerHTML = `<p class="muted">Adicione produtos acima para ver a projeção em ${span} (${cdiNote}).</p>`;
+    rank.innerHTML = '';
+    if (chip) chip.textContent = '—';
+    return;
+  }
+
+  const rows = investments.map(p => ({ p, s: invProject(p, months) }));
+  const sorted = [...rows].sort((a, b) => b.s.net - a.s.net);
+  const tot = sorted.reduce((acc, r) => {
+    acc.invested += r.s.invested;
+    acc.gross += r.s.gross;
+    acc.fees += r.s.fees;
+    acc.net += r.s.net;
+    acc.gain += r.s.gain;
+    return acc;
+  }, { invested: 0, gross: 0, fees: 0, net: 0, gain: 0 });
+  const maxNet = Math.max(...sorted.map(r => r.s.net), 1);
+
+  if (chip) chip.textContent = `total líquido ${fmtBRL(tot.net)}`;
+
+  const rankRows = [...investments].map(p => ({
+    p,
+    s: invProject({ ...p, balance: 0, aporte: 1000 }, months)
+  })).sort((a, b) => b.s.net - a.s.net);
+
+  rank.innerHTML = `
+    <p class="muted">Se você aportar <b>R$1.000/mês</b> em cada um por ${span} (sem saldo inicial):</p>
+    <ul class="inv-rank-list">
+      ${rankRows.map((r, i) => `
+        <li class="task">
+          <div class="task-info">
+            <span class="t-title"><b class="rank-pos">${i + 1}º</b> ${escapeHtml(r.p.bank)} · ${escapeHtml(r.p.name)}</span>
+            <span class="t-meta"><span class="tag">${invRateLabel(r.p)}</span><span class="tag">com taxas</span></span>
+          </div>
+          <span class="t-amount in">${fmtBRL(r.s.net)}</span>
+        </li>`).join('')}
+    </ul>`;
+
+  box.innerHTML = `
+    <p class="muted">Projeção por produto em <b>${span}</b> (${cdiNote}), já descontando taxas de entrada e resgate:</p>
+    <div class="inv-sim-list">
+      ${sorted.map(({ p, s }) => `
+        <div class="task inv-sim">
+          <div class="task-info">
+            <span class="t-title">${escapeHtml(p.bank)} · ${escapeHtml(p.name)} <span class="tag">${invEffLabel(p)}</span></span>
+            <div class="t-meta">
+              <span class="tag">aportado ${fmtBRL(s.invested)}</span>
+              <span class="tag">bruto ${fmtBRL(s.gross)}</span>
+              <span class="tag" title="Entrada + resgate">taxas ${fmtBRL(s.fees)}</span>
+              <span class="tag">rendimento ${fmtBRL(s.gain)}</span>
+            </div>
+          </div>
+          <span class="t-amount ${s.net >= 0 ? 'in' : 'out'}">${fmtBRL(s.net)}</span>
+          <div class="inv-bar-track"><span class="inv-bar ${s.net < 0 ? 'neg' : ''}" style="width:${Math.max(0, Math.min(100, (s.net / maxNet) * 100))}%"></span></div>
+        </div>`).join('')}
+      <div class="task inv-sim inv-total">
+        <div class="task-info">
+          <span class="t-title">Total estimado em ${span}</span>
+          <div class="t-meta">
+            <span class="tag">aportado ${fmtBRL(tot.invested)}</span>
+            <span class="tag">bruto ${fmtBRL(tot.gross)}</span>
+            <span class="tag">taxas ${fmtBRL(tot.fees)}</span>
+            <span class="tag">rendimento ${fmtBRL(tot.gain)}</span>
+          </div>
+        </div>
+        <span class="t-amount ${tot.net >= 0 ? 'in' : 'out'}">${fmtBRL(tot.net)}</span>
+      </div>
+    </div>`;
+}
+
+function openInvestmentForm(p = null) {
+  ui.editingInvestmentId = p ? p.id : null;
+  el('inv-bank').value = p ? p.bank : '';
+  el('inv-name').value = p ? p.name : '';
+  el('inv-kind').value = p ? p.kind : 'cdi';
+  el('inv-rate').value = p ? p.rate : '';
+  el('inv-balance').value = p ? p.balance : '';
+  el('inv-aporte').value = p ? p.aporte : '';
+  el('inv-inFee').value = p ? p.inFee : '';
+  el('inv-outFee').value = p ? p.outFee : '';
+  el('inv-outFeePct').value = p ? p.outFeePct : '';
+  el('inv-form-title').textContent = p ? `Editar "${p.name}"` : 'Adicionar produto';
+  el('inv-cancel').classList.toggle('is-hidden', !p);
+  el('inv-name').focus();
+}
+
+function saveInvestmentFromForm() {
+  const bank = el('inv-bank').value.trim();
+  const name = el('inv-name').value.trim();
+  if (!bank || !name) { el('inv-name').focus(); return; }
+  const data = {
+    bank,
+    name,
+    kind: INV_KIND[el('inv-kind').value] ? el('inv-kind').value : 'cdi',
+    rate: Math.max(0, parseFloat(el('inv-rate').value) || 0),
+    balance: Math.max(0, parseFloat(el('inv-balance').value) || 0),
+    aporte: Math.max(0, parseFloat(el('inv-aporte').value) || 0),
+    inFee: Math.max(0, parseFloat(el('inv-inFee').value) || 0),
+    outFee: Math.max(0, parseFloat(el('inv-outFee').value) || 0),
+    outFeePct: Math.max(0, parseFloat(el('inv-outFeePct').value) || 0)
+  };
+  if (ui.editingInvestmentId) {
+    const p = investments.find(x => x.id === ui.editingInvestmentId);
+    if (p) Object.assign(p, data);
+    toast('Produto atualizado', 'ok');
+  } else {
+    investments.push(normalizeInvestment({ ...data, id: uid(), createdAt: Date.now() }));
+    toast('Produto adicionado', 'ok');
+  }
+  ui.editingInvestmentId = null;
+  el('inv-form').reset();
+  el('inv-form-title').textContent = 'Adicionar produto';
+  el('inv-cancel').classList.add('is-hidden');
+  persistInvestments();
+  renderAll();
+  el('inv-bank').focus();
+}
+
+function deleteInvestment(id) {
+  const p = investments.find(x => x.id === id);
+  if (!p) return;
+  confirmAction('Excluir produto', `Remover "${p.bank} · ${p.name}" da simulação?`, () => {
+    investments = investments.filter(x => x.id !== id);
+    if (ui.editingInvestmentId === id) ui.editingInvestmentId = null;
+    persistInvestments();
+    renderAll();
+    toast('Produto excluído', 'warn');
+  });
+}
+
 /* ================= notes ================= */
 /* ================= markdown ================= */
 const safeUrl = u => /^(https?:\/\/|mailto:|#|\/|\.{1,2}\/)/i.test(String(u).trim()) ? String(u).trim() : '#';
@@ -2136,6 +2373,7 @@ const VIEW_META = {
   dashboard: ['Dashboard', 'Visão geral das suas finanças'],
   fixos: ['Salário & Fixos', 'Renda do mês e despesas fixas'],
   rendaExterna: ['Renda externa', 'Freelance, PJ e serviços'],
+  investments: ['Investimentos', 'Planejamento de médio e longo prazo'],
   transactions: ['Transações', 'Despesas e receitas por categoria'],
   budgets: ['Orçamentos', 'Limites e metas por categoria'],
   notes: ['Notas', 'Metas, resumos e referências financeiras'],
@@ -2168,6 +2406,8 @@ function renderAll() {
   renderSalaryForm();
   renderFixedList();
   renderExternalList();
+  renderInvestmentList();
+  renderInvestmentSim();
   renderTransactionList();
   renderBudgetList();
   renderBudgetDetail();
@@ -2393,6 +2633,14 @@ function seedData() {
     normalizeExternal({ id: uid() + 'e2', title: 'Identidade visual', amount: 3200, client: 'Café Aurora', due: shiftISO(12), paid: false, notes: 'contrato PJ, NF emitida' }),
     normalizeExternal({ id: uid() + 'e3', title: 'Manutenção mensal', amount: 800, client: 'Loja ABC', due: shiftISO(-3), paid: true })
   ];
+  prefs.invCdi = 13.65;
+  prefs.invMonths = 60;
+  investments = [
+    normalizeInvestment({ id: uid() + 'p1', bank: 'Inter', name: 'CDB 102% CDI', kind: 'cdi', rate: 102, balance: 1500, aporte: 300, inFee: 0, outFee: 0, outFeePct: 0 }),
+    normalizeInvestment({ id: uid() + 'p2', bank: 'Nubank', name: 'Caixinha 100% CDI', kind: 'cdi', rate: 100, balance: 2500, aporte: 250, inFee: 0, outFee: 0, outFeePct: 0 }),
+    normalizeInvestment({ id: uid() + 'p3', bank: 'PagBank', name: 'CDB liquidez diária', kind: 'cdi', rate: 100, balance: 0, aporte: 200, inFee: 0, outFee: 0, outFeePct: 0 }),
+    normalizeInvestment({ id: uid() + 'p4', bank: 'Mercado Bitcoin', name: 'Bitcoin (BTC)', kind: 'crypto', rate: 20, balance: 800, aporte: 100, inFee: 0, outFee: 0, outFeePct: 0.5 })
+  ];
 
   history = [
     {
@@ -2423,7 +2671,7 @@ function seedData() {
 }
 
 function exportData() {
-  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history, salaries, fixed, external }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history, salaries, fixed, external, investments }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `findek-${todayISO()}.json`;
@@ -2458,6 +2706,7 @@ function importData(file) {
       if (data.salaries && typeof data.salaries === 'object' && !Array.isArray(data.salaries)) salaries = data.salaries;
       if (Array.isArray(data.fixed)) fixed = data.fixed.map(normalizeFixed).filter(Boolean);
       if (Array.isArray(data.external)) external = data.external.map(normalizeExternal).filter(Boolean);
+      if (Array.isArray(data.investments)) investments = data.investments.map(normalizeInvestment).filter(Boolean);
       ui.filters.category = '';
       ui.activeNoteId = notes[0]?.id || null;
       ui.activeBudgetId = budgets[0]?.id || null;
@@ -2483,6 +2732,7 @@ function resetAll() {
     salaries = {};
     fixed = [];
     external = [];
+    investments = [];
     prefs = Object.assign({}, defaultPrefs);
     categories = CATEGORIES_DEFAULT.slice();
     ui.activeNoteId = null;
@@ -2604,6 +2854,24 @@ function bindEvents() {
       if (extBtn.dataset.act === 'x-edit') openExternalForm(x);
       if (extBtn.dataset.act === 'x-del') deleteExternal(x.id);
       if (extBtn.dataset.act === 'toggle') toggleExternal(x.id);
+      return;
+    }
+
+    const invBtn = e.target.closest('#inv-list [data-act]');
+    if (invBtn) {
+      const p = investments.find(x => x.id === invBtn.dataset.id);
+      if (!p) return;
+      if (invBtn.dataset.act === 'inv-edit') openInvestmentForm(p);
+      if (invBtn.dataset.act === 'inv-del') deleteInvestment(p.id);
+      return;
+    }
+
+    const dur = e.target.closest('[data-act="inv-duration"]');
+    if (dur) {
+      prefs.invMonths = Math.max(1, parseInt(dur.dataset.months, 10) || 12);
+      if (el('inv-months')) el('inv-months').value = prefs.invMonths;
+      persistAll();
+      renderAll();
       return;
     }
 
@@ -2754,6 +3022,24 @@ function bindEvents() {
     el('x-due').value = shiftISO(0);
     el('ext-form-title').textContent = 'Adicionar renda externa';
     el('ext-cancel').classList.add('is-hidden');
+  });
+  if (el('inv-form')) el('inv-form').addEventListener('submit', e => { e.preventDefault(); saveInvestmentFromForm(); });
+  if (el('inv-cancel')) el('inv-cancel').addEventListener('click', () => {
+    ui.editingInvestmentId = null;
+    el('inv-form').reset();
+    el('inv-form-title').textContent = 'Adicionar produto';
+    el('inv-cancel').classList.add('is-hidden');
+  });
+  if (el('inv-cdi')) el('inv-cdi').addEventListener('input', () => {
+    prefs.invCdi = parseFloat(el('inv-cdi').value) || 0;
+    persistAll();
+    renderInvestmentList();
+    renderInvestmentSim();
+  });
+  if (el('inv-months')) el('inv-months').addEventListener('input', () => {
+    prefs.invMonths = Math.max(1, parseInt(el('inv-months').value, 10) || 1);
+    persistAll();
+    renderInvestmentSim();
   });
 
   el('link-form').addEventListener('submit', e => {
