@@ -79,12 +79,10 @@ FinDek é um **planejador financeiro minimalista** com paleta verde e branca. Se
 
 **Investimentos** 🚀
 
-- Cadastro de produtos: **Inter**, **Nubank**, **PagBank**, **Mercado Bitcoin** e outros
-- Rendimento por % do CDI, taxa fixa anual ou expectativa de cripto
-- **Simulação de médio/longo prazo**: informe aportes mensais e o horizonte (1–20 anos)
-- **Ranking "onde rende mais"**: R$1.000/mês em cada produto lado a lado
-- Taxas de **transferência (entrada)** e **resgate (fixa + %)** já descontadas
-- CDI projetado ajustável e total líquido estimado
+- Cadastro de **opções**: Inter, Nubank, PagBank, Mercado Bitcoin e outros
+- Cada banco/plataforma com o seu **rendimento % a.a.** (editável)
+- **Simulação simples**: informe um valor e o prazo (1–20 anos) e veja o montante em cada opção, com juros compostos mês a mês
+- Ranking automático — quem rende mais aparece primeiro, com o total geral
 
 **Orçamentos**
 
@@ -133,7 +131,7 @@ Depois, uma das opções:
 python -m http.server 8000     # depois abra http://localhost:8000
 ```
 
-O primeiro acesso sembra 14 transações, 2 orçamentos, 3 notas, gastos fixos e produtos de investimento de exemplo. Vá em **Temas → Dados → Apagar tudo** para começar do zero.
+O primeiro acesso sembra 14 transações, 2 orçamentos, 3 notas, gastos fixos e opções de investimento de exemplo. Vá em **Temas → Dados → Apagar tudo** para começar do zero.
 
 ## Keyboard shortcuts
 
@@ -170,8 +168,8 @@ Tudo vive em `localStorage` — nada de servidor, nada de cookies:
 | `findek.salary` | Salários por mês (`YYYY-MM` → valor) |
 | `findek.fixed` | `FixedExpense[]` (checklist de pagos) |
 | `findek.external` | `ExternalIncome[]` (freelance/PJ) |
-| `findek.investments` | `Investment[]` (produtos e taxas) |
-| `findek.prefs` | Tema, acento, densidade, fonte, movimento, CDI projetado, horizonte |
+| `findek.investments` | `Investment[]` (opções de bancos e % a.a.) |
+| `findek.prefs` | Tema, acento, densidade, fonte, movimento, prazo e valor padrão da simulação |
 | `findek.categories` | Nomes de categorias + cores |
 | `findek.history` | Transações pagas (7 dias) |
 
@@ -200,18 +198,12 @@ Formato de produto de investimento:
 {
   "id": "p1x2y3z4ab",
   "bank": "Nubank",
-  "name": "Caixinha 100% CDI",
-  "kind": "cdi",
-  "rate": 100,
-  "balance": 2500,
-  "aporte": 250,
-  "inFee": 0,
-  "outFee": 0,
-  "outFeePct": 0
+  "rate": 13.65,
+  "createdAt": 1772400000000
 }
 ```
 
-A interface é em português brasileiro. `type` é `despesa` ou `receita`; datas são ISO `YYYY-MM-DD`; valores são números exibidos como BRL na tela. `kind` de investimento é `cdi`, `pct` ou `crypto`.
+A interface é em português brasileiro. `type` é `despesa` ou `receita`; datas são ISO `YYYY-MM-DD`; valores são números exibidos como BRL na tela. `investments.rate` é o rendimento estimado ao ano de cada opção.
 
 > Limpar os dados do navegador apaga o `localStorage`. Use **Temas → Dados → Exportar** para um backup JSON.
 

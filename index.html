@@ -248,16 +248,35 @@
       <section class="view is-hidden" id="view-investments">
         <section class="panel">
           <header class="panel-head">
-            <h2>Produtos de investimento</h2>
-            <span class="chip" id="inv-count-chip">0 produtos</span>
+            <h2>Opções de investimento</h2>
+            <span class="chip" id="inv-count-chip">0 opções</span>
+          </header>
+          <form class="block-form" id="inv-form">
+            <div class="form-title" id="inv-form-title">Adicionar opção</div>
+            <div class="field-2">
+              <label class="field"><span>Banco / plataforma</span><input type="text" id="inv-bank" list="inv-bank-list" placeholder="Ex: Nubank" maxlength="40" autocomplete="off" required></label>
+              <label class="field"><span>Rendimento (% a.a.)</span><input type="number" id="inv-rate" placeholder="Ex: 13,65" min="0" step="0.01" required></label>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-ghost btn-sm is-hidden" id="inv-cancel">Cancelar edição</button>
+              <button type="submit" class="btn btn-primary">Adicionar</button>
+            </div>
+          </form>
+          <ul class="task-list" id="inv-list"></ul>
+        </section>
+
+        <section class="panel">
+          <header class="panel-head">
+            <h2>Simulação</h2>
+            <span class="chip" id="sim-chip">—</span>
           </header>
           <div class="filter-row">
             <label class="field inline">
-              <span>CDI projetado (a.a.)</span>
-              <input type="number" id="inv-cdi" class="select" min="0" step="0.01" title="Usado nos produtos do tipo '% do CDI'">
+              <span>Valor a investir (R$)</span>
+              <input type="number" id="inv-value" class="select" min="0" step="0.01" title="Valor aplicado hoje em cada opção">
             </label>
             <label class="field inline">
-              <span>Horizonte (meses)</span>
+              <span>Prazo (meses)</span>
               <input type="number" id="inv-months" class="select" min="1" max="600" title="Duração da simulação">
             </label>
             <div class="head-actions">
@@ -267,45 +286,8 @@
               <button type="button" class="btn btn-ghost btn-sm" data-act="inv-duration" data-months="240">20 anos</button>
             </div>
           </div>
-          <form class="block-form" id="inv-form">
-            <div class="form-title" id="inv-form-title">Adicionar produto</div>
-            <div class="field-2">
-              <label class="field"><span>Banco / plataforma</span><input type="text" id="inv-bank" list="inv-bank-list" placeholder="Ex: Nubank" maxlength="40" autocomplete="off" required></label>
-              <label class="field"><span>Nome do produto</span><input type="text" id="inv-name" placeholder="Ex: CDB 100% CDI" maxlength="60" autocomplete="off" required></label>
-            </div>
-            <div class="field-2">
-              <label class="field"><span>Tipo de rendimento</span><select id="inv-kind" class="select">
-                <option value="cdi">% do CDI (pós-fixado)</option>
-                <option value="pct">Taxa fixa ao ano</option>
-                <option value="crypto">Cripto (expectativa a.a.)</option>
-              </select></label>
-              <label class="field"><span>Percentual</span><input type="number" id="inv-rate" placeholder="Ex: 100 (para 100% do CDI)" min="0" step="0.01" required></label>
-            </div>
-            <div class="field-2">
-              <label class="field"><span>Saldo atual (R$)</span><input type="number" id="inv-balance" placeholder="0,00" min="0" step="0.01"></label>
-              <label class="field"><span>Aporte mensal (R$)</span><input type="number" id="inv-aporte" placeholder="0,00" min="0" step="0.01"></label>
-            </div>
-            <div class="field-2">
-              <label class="field"><span>Taxa de entrada (R$)</span><input type="number" id="inv-inFee" placeholder="Taxa para transferir/procurar" min="0" step="0.01"></label>
-              <label class="field"><span>Taxa de resgate (R$)</span><input type="number" id="inv-outFee" placeholder="Taxa fixa para resgatar" min="0" step="0.01"></label>
-            </div>
-            <label class="field"><span>Taxa de resgate (%)</span><input type="number" id="inv-outFeePct" placeholder="Ex: 0.5 para taxa proporcional" min="0" step="0.01"></label>
-            <div class="form-actions">
-              <button type="button" class="btn btn-ghost btn-sm is-hidden" id="inv-cancel">Cancelar edição</button>
-              <button type="submit" class="btn btn-primary">Adicionar</button>
-            </div>
-          </form>
-          <ul class="task-list" id="inv-list"></ul>
-          <p class="muted inv-note">Rendimentos são <b>estimativas</b> — CDBs pós-fixados seguem o CDI que você definiu. A proporção da taxa de resgate (%) incide sobre o valor bruto no fim do período; já as taxas fixas incidem na entrada e na saída.</p>
-        </section>
-
-        <section class="panel">
-          <header class="panel-head">
-            <h2>Simulação de longo prazo</h2>
-            <span class="chip" id="sim-chip">—</span>
-          </header>
-          <div id="inv-rank"></div>
           <div id="inv-sim"></div>
+          <p class="muted inv-note">Os <b>% a.a.</b> são estimativas de rentabilidade de cada banco/plataforma e podem ser editados. A simulação usa juros compostos mês a mês.</p>
         </section>
       </section>
 
