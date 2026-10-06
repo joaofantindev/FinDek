@@ -8,7 +8,8 @@ const K = {
   history: 'findek.history',
   wallpaper: 'findek.wallpaper',
   salary: 'findek.salary',
-  fixed: 'findek.fixed'
+  fixed: 'findek.fixed',
+  external: 'findek.external'
 };
 
 const load = (k, fallback) => {
@@ -103,6 +104,7 @@ let salaries = (() => {
   return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
 })();
 let fixed = (Array.isArray(load(K.fixed, [])) ? load(K.fixed, []) : []).map(normalizeFixed).filter(Boolean);
+let external = (Array.isArray(load(K.external, [])) ? load(K.external, []) : []).map(normalizeExternal).filter(Boolean);
 
 const slug = name => String(name || '').trim().toLowerCase();
 
@@ -162,6 +164,7 @@ let ui = {
   editingGoalId: null,
   editingGoalBudgetId: null,
   editingFixedId: null,
+  editingExternalId: null,
   openGroups: new Set(),
   confirmAction: null
 };
@@ -175,6 +178,7 @@ const persistAll = () => {
   save(K.history, history);
   save(K.salary, salaries);
   save(K.fixed, fixed);
+  save(K.external, external);
 };
 const persistTransactions = () => save(K.transactions, transactions);
 const persistNotes = () => save(K.notes, notes);
@@ -183,6 +187,7 @@ const persistBudgets = () => save(K.budgets, budgets);
 const persistHistory = () => save(K.history, history);
 const persistSalary = () => save(K.salary, salaries);
 const persistFixed = () => save(K.fixed, fixed);
+const persistExternal = () => save(K.external, external);
 
 /* ================= dom ================= */
 const $ = sel => document.querySelector(sel);
@@ -1377,12 +1382,28 @@ function downloadBudgetNoteAsMd() {
 }
 
 /* ================= dashboard ================= */
+const monthExpenses = (ref = new Date()) => transactions
+  .filter(t => t.type === 'despesa' && inMonth(t, ref))
+  .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+const STAT_TARGETS = {
+  gastos: ['transactions', { type: 'despesa', status: 'all' }],
+  receitas: ['transactions', { type: 'receita', status: 'all' }],
+  saldo: ['fixos', null],
+  salario: ['fixos', null],
+  fixos: ['fixos', null],
+  pendentes: ['transactions', { type: 'despesa', status: 'pending' }],
+  orcamento: ['budgets', null],
+  notas: ['notes', null],
+  ext: ['rendaExterna', null]
+};
+
 function renderStats() {
   const now = new Date();
   const monthTx = transactions.filter(t => inMonth(t, now));
-  const expenses = monthTx.filter(t => t.type === 'despesa').reduce((s, t) => s + (Number(t.amount) || 0), 0);
+  const expenses = monthExpenses(now);
   const income = monthTx.filter(t => t.type === 'receita').reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  const balance = income - expenses;
+  const salary = salaryFor();
 
   const pending = transactions.filter(t => !t.paid && t.type === 'despesa');
   const pendingSum = pending.reduce((s, t) => s + (Number(t.amount) || 0), 0);
@@ -1393,21 +1414,29 @@ function renderStats() {
   const usage = budgetTotal > 0 ? Math.round((spentTotal / budgetTotal) * 100) : 0;
 
   const monthName = now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const extM = extsOfMonth();
+  const extPaidN = extM.list.filter(x => x.paid).length;
+  const extPendingN = extM.list.filter(x => !x.paid).length;
+  const balance = salary + extM.paid - expenses;
 
   const stats = [
-    { lbl: `Gastos · ${monthName}`, val: fmtBRL(expenses), sub: `${monthTx.filter(t => t.type === 'despesa').length} despesa${monthTx.filter(t => t.type === 'despesa').length !== 1 ? 's' : ''}`, c: 'var(--accent)' },
-    { lbl: `Receitas · ${monthName}`, val: fmtBRL(income), sub: `${monthTx.filter(t => t.type === 'receita').length} entrada${monthTx.filter(t => t.type === 'receita').length !== 1 ? 's' : ''}`, c: 'var(--info)' },
-    { lbl: 'Saldo do mês', val: `${balance < 0 ? '−' : ''}${fmtBRL(Math.abs(balance))}`, sub: balance >= 0 ? 'positivo — bem!' : 'negativo — atenção', c: balance >= 0 ? 'var(--ok)' : 'var(--danger)' },
-    { lbl: `Salário · ${monthName}`, val: fmtBRL(salaryFor()), sub: fixed.length ? `${fixed.length} gasto${fixed.length !== 1 ? 's' : ''} fixo${fixed.length !== 1 ? 's' : ''} cadastrado${fixed.length !== 1 ? 's' : ''}` : 'cadastre na área Salário & Fixos', c: 'var(--ok)' },
-    { lbl: 'Gastos fixos', val: fmtBRL(fixedTotal()), sub: 'recorrentes todo mês — ver Salário & Fixos', c: 'var(--warn)' },
-    { lbl: 'Contas pendentes', val: fmtBRL(pendingSum), sub: `${pending.length} transação${pending.length !== 1 ? 'ões' : ''} para pagar`, c: pending.length ? 'var(--warn)' : 'var(--muted)' },
-    { lbl: 'Orçamento usado', val: budgetTotal ? `${usage}%` : '—', sub: budgetTotal ? `${fmtBRL(spentTotal)} de ${fmtBRL(budgetTotal)}` : 'nenhum orçamento ativo', c: usage > 100 ? 'var(--danger)' : 'var(--accent)' },
-    { lbl: 'Notas', val: notes.length, sub: `${notes.filter(n => n.pinned).length} fixada${notes.filter(n => n.pinned).length !== 1 ? 's' : ''}`, c: 'var(--accent)' }
+    { stat: 'gastos', lbl: `Gastos · ${monthName}`, val: fmtBRL(expenses), hint: 'Ver e editar as despesas do mês', sub: `${monthTx.filter(t => t.type === 'despesa').length} despesa${monthTx.filter(t => t.type === 'despesa').length !== 1 ? 's' : ''}`, c: 'var(--accent)' },
+    { stat: 'receitas', lbl: `Receitas · ${monthName}`, val: fmtBRL(income), hint: 'Ver e editar as receitas do mês', sub: `${monthTx.filter(t => t.type === 'receita').length} entrada${monthTx.filter(t => t.type === 'receita').length !== 1 ? 's' : ''}`, c: 'var(--info)' },
+    { stat: 'saldo', lbl: 'Saldo do mês', val: `${balance < 0 ? '−' : ''}${fmtBRL(Math.abs(balance))}`, hint: 'Saldo = salário + renda externa − gastos do mês', sub: salary > 0 ? 'salário + renda externa − gastos' : 'defina o salário em Salário & Fixos', c: balance >= 0 ? 'var(--ok)' : 'var(--danger)' },
+    { stat: 'salario', lbl: `Salário · ${monthName}`, val: fmtBRL(salaryFor()), hint: 'Ajustar o salário do mês', sub: fixed.length ? `${fixed.length} gasto${fixed.length !== 1 ? 's' : ''} fixo${fixed.length !== 1 ? 's' : ''} cadastrado${fixed.length !== 1 ? 's' : ''}` : 'cadastre na área Salário & Fixos', c: 'var(--ok)' },
+    { stat: 'fixos', lbl: 'Gastos fixos', val: fmtBRL(fixedTotal()), hint: 'Administrar os gastos fixos', sub: 'recorrentes todo mês — ver Salário & Fixos', c: 'var(--warn)' },
+    { stat: 'ext', lbl: `Renda externa · ${monthName}`, val: fmtBRL(extM.total), hint: 'Administrar trabalhos freelance / PJ', sub: extM.count ? `${extPaidN} recebida${extPaidN !== 1 ? 's' : ''} · ${extPendingN} pendente${extPendingN !== 1 ? 's' : ''}` : 'cadastre trabalhos freelance / PJ', c: 'var(--info)' },
+    { stat: 'pendentes', lbl: 'Contas pendentes', val: fmtBRL(pendingSum), hint: 'Pagar as contas pendentes', sub: `${pending.length} transação${pending.length !== 1 ? 'ões' : ''} para pagar`, c: pending.length ? 'var(--warn)' : 'var(--muted)' },
+    { stat: 'orcamento', lbl: 'Orçamento usado', val: budgetTotal ? `${usage}%` : '—', hint: 'Ver e editar orçamentos', sub: budgetTotal ? `${fmtBRL(spentTotal)} de ${fmtBRL(budgetTotal)}` : 'nenhum orçamento ativo', c: usage > 100 ? 'var(--danger)' : 'var(--accent)' },
+    { stat: 'notas', lbl: 'Notas', val: notes.length, hint: 'Abrir as notas', sub: `${notes.filter(n => n.pinned).length} fixada${notes.filter(n => n.pinned).length !== 1 ? 's' : ''}`, c: 'var(--accent)' }
   ];
 
   el('stat-grid').innerHTML = stats.map(s => `
-    <div class="stat" style="--c:${s.c}">
+    <div class="stat" data-stat="${s.stat}" title="${s.hint}" style="--c:${s.c}">
       <span class="lbl">${s.lbl}</span>
+      <span class="open-hint">
+        <svg viewBox="0 0 24 24"><path d="M7 17L17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </span>
       <div class="val">${s.val}</div>
       <span class="sub">${s.sub}</span>
     </div>`).join('');
@@ -1520,6 +1549,9 @@ const fixedTotal = () => fixed.reduce((s, f) => s + f.amount, 0);
 function renderSalaryForm() {
   const month = el('s-month').value || monthKey();
   const salary = salaryFor(month);
+  const gastos = monthExpenses();
+  const ext = extsOfMonth().paid;
+  const saldo = salary + ext - gastos;
   el('s-month').value = month;
   const amt = el('s-amount');
   if (document.activeElement !== amt) amt.value = salary || '';
@@ -1529,12 +1561,20 @@ function renderSalaryForm() {
       <b>${fmtBRL(salary)}</b>
     </div>
     <div class="salary-line">
+      <span>Renda externa recebida no mês</span>
+      <b class="out">${fmtBRL(ext)}</b>
+    </div>
+    <div class="salary-line">
       <span>Gastos fixos do mês</span>
       <b class="out">${fmtBRL(fixedTotal())}</b>
     </div>
-    <div class="salary-line ok">
-      <span>Disponível após os fixos</span>
-      <b>${fmtBRL(salary - fixedTotal())}</b>
+    <div class="salary-line">
+      <span>Gastos do mês (todas as despesas)</span>
+      <b class="out">${fmtBRL(gastos)}</b>
+    </div>
+    <div class="salary-line ${saldo >= 0 ? 'ok' : ''}">
+      <span>Saldo do mês (salário + renda externa − gastos)</span>
+      <b>${saldo < 0 ? '−' : ''}${fmtBRL(Math.abs(saldo))}</b>
     </div>`;
 }
 
@@ -1643,19 +1683,24 @@ function renderSalaryPanel() {
   if (!box) return;
   const salary = salaryFor();
   const total = fixedTotal();
+  const gastos = monthExpenses();
+  const ext = extsOfMonth().paid;
+  const saldo = salary + ext - gastos;
   const pct = salary > 0 ? Math.round((total / salary) * 100) : 0;
 
   box.style.setProperty('--p', salary > 0 ? Math.min(pct, 100) : 0);
   el('salary-value').textContent = salary > 0 ? `${pct}%` : '—';
   el('salary-chip').textContent = salary > 0
-    ? `${fmtBRL(total)} de ${fmtBRL(salary)}`
+    ? `saldo ${saldo < 0 ? '−' : ''}${fmtBRL(Math.abs(saldo))}`
     : (fixed.length ? 'salário não cadastrado' : 'sem gastos fixos');
 
   const legend = salary > 0
     ? [
         { lbl: 'Salário', v: fmtBRL(salary), c: 'var(--ok)' },
+        { lbl: 'Renda externa (recebida)', v: fmtBRL(ext), c: 'var(--info)' },
         { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
-        { lbl: 'Disponível', v: fmtBRL(salary - total), c: pct > 100 ? 'var(--danger)' : 'var(--accent)' }
+        { lbl: 'Gastos do mês', v: fmtBRL(gastos), c: 'var(--accent)' },
+        { lbl: 'Saldo do mês', v: `${saldo < 0 ? '−' : ''}${fmtBRL(Math.abs(saldo))}`, c: saldo >= 0 ? 'var(--ok)' : 'var(--danger)' }
       ]
     : [
         { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
@@ -1679,6 +1724,129 @@ function renderDashboardFixed() {
       <span class="r"><span class="tag">dia ${f.day}</span>&nbsp;${fmtBRL(f.amount)}</span>
     </li>`).join('');
 }
+/* ================= renda externa (freelance / PJ) ================= */
+function normalizeExternal(x) {
+  if (!x || !x.title) return null;
+  return {
+    id: x.id || uid(),
+    title: String(x.title).trim(),
+    amount: Math.max(0, Number(x.amount) || 0),
+    client: String(x.client || '').trim(),
+    due: x.due || '',
+    paid: !!x.paid,
+    notes: String(x.notes || '').trim(),
+    createdAt: x.createdAt || Date.now(),
+    completedAt: x.paid ? (x.completedAt || Date.now()) : (x.completedAt || null)
+  };
+}
+
+const extTerm = x => x.due || new Date(x.createdAt || Date.now()).toISOString().slice(0, 10);
+const extInMonth = x => extTerm(x).startsWith(monthKey());
+
+function extsOfMonth() {
+  const list = external.filter(extInMonth);
+  const paid = list.filter(x => x.paid).reduce((s, x) => s + x.amount, 0);
+  const pending = list.filter(x => !x.paid).reduce((s, x) => s + x.amount, 0);
+  return { list, paid, pending, total: paid + pending, count: list.length };
+}
+
+function openExternalForm(x = null) {
+  ui.editingExternalId = x ? x.id : null;
+  el('x-title').value = x ? x.title : '';
+  el('x-amount').value = x ? x.amount : '';
+  el('x-client').value = x ? (x.client || '') : '';
+  el('x-due').value = x ? (x.due || '') : shiftISO(0);
+  el('x-notes').value = x ? (x.notes || '') : '';
+  el('ext-form-title').textContent = x ? `Editar "${x.title}"` : 'Adicionar renda externa';
+  el('ext-cancel').classList.toggle('is-hidden', !x);
+  el('x-title').focus();
+}
+
+function saveExternalFromForm() {
+  const title = el('x-title').value.trim();
+  if (!title) { el('x-title').focus(); return; }
+  const data = {
+    title,
+    amount: Math.max(0, parseFloat(el('x-amount').value) || 0),
+    client: el('x-client').value.trim(),
+    due: el('x-due').value || '',
+    notes: el('x-notes').value.trim()
+  };
+
+  if (ui.editingExternalId) {
+    const x = external.find(i => i.id === ui.editingExternalId);
+    if (x) Object.assign(x, data);
+    toast('Renda externa atualizada', 'ok');
+  } else {
+    external.push(normalizeExternal({ ...data, id: uid(), paid: false, createdAt: Date.now() }));
+    toast('Renda externa adicionada', 'ok');
+  }
+  ui.editingExternalId = null;
+  el('ext-form').reset();
+  el('ext-form-title').textContent = 'Adicionar renda externa';
+  el('ext-cancel').classList.add('is-hidden');
+  persistExternal();
+  renderAll();
+  el('x-title').focus();
+}
+
+function deleteExternal(id) {
+  const x = external.find(i => i.id === id);
+  if (!x) return;
+  confirmAction('Excluir renda externa', `Remover "${x.title}" (${fmtBRL(x.amount)})?`, () => {
+    external = external.filter(i => i.id !== id);
+    if (ui.editingExternalId === id) ui.editingExternalId = null;
+    persistExternal();
+    renderAll();
+    toast('Renda externa excluída', 'warn');
+  });
+}
+
+function toggleExternal(id, force = null) {
+  const x = external.find(i => i.id === id);
+  if (!x) return;
+  x.paid = force ?? !x.paid;
+  x.completedAt = x.paid ? (x.completedAt || Date.now()) : null;
+  persistExternal();
+  renderAll();
+  if (x.paid) toast(`"${x.title}" marcada como recebida`, 'ok');
+}
+
+function renderExternalList() {
+  const box = el('ext-list');
+  if (!box) return;
+  if (el('x-due') && !el('x-due').value) el('x-due').value = shiftISO(0);
+  const { paid, pending, total, count } = extsOfMonth();
+  if (el('ext-total')) el('ext-total').textContent = count ? `${fmtBRL(total)} no mês` : 'nenhuma no mês';
+  el('ext-summary').innerHTML = `
+    <div class="salary-line"><span>Recebido no mês</span><b>${fmtBRL(paid)}</b></div>
+    <div class="salary-line"><span>Pendente no mês</span><b class="out">${fmtBRL(pending)}</b></div>
+    <div class="salary-line ok"><span>Previsto (recebido + pendente)</span><b>${fmtBRL(total)}</b></div>`;
+
+  if (!external.length) {
+    box.innerHTML = '<li class="empty">Nenhuma renda externa. Adicione trabalhos freelance, PJ, consultorias e serviços.</li>';
+    return;
+  }
+  const sorted = [...external].sort((a, b) => (a.paid - b.paid) || (a.due || '').localeCompare(b.due || ''));
+  box.innerHTML = sorted.map(x => `
+    <div class="task ${x.paid ? 'is-done' : ''}" style="--p:var(--ok)">
+      <button class="check" data-act="toggle" aria-label="Marcar como recebida">${CHECK_SVG}</button>
+      <div class="task-info">
+        <span class="t-title">${escapeHtml(x.title)}</span>
+        <div class="t-meta">
+          ${x.client ? `<span class="tag">${escapeHtml(x.client)}</span>` : ''}
+          ${dueTag(x)}
+          ${x.notes ? `<span class="t-note">— ${escapeHtml(x.notes)}</span>` : ''}
+        </div>
+      </div>
+      <span class="t-amount in">+ ${fmtBRL(x.amount)}</span>
+      <div class="task-actions">
+        <button data-act="x-edit" data-id="${x.id}" title="Editar">${EDIT_SVG}</button>
+        <button data-act="x-del" class="del" data-id="${x.id}" title="Excluir">${DEL_SVG}</button>
+      </div>
+    </div>`).join('');
+}
+
 /* ================= notes ================= */
 /* ================= markdown ================= */
 const safeUrl = u => /^(https?:\/\/|mailto:|#|\/|\.{1,2}\/)/i.test(String(u).trim()) ? String(u).trim() : '#';
@@ -1949,6 +2117,7 @@ function updateNote(patch) {
 const VIEW_META = {
   dashboard: ['Dashboard', 'Visão geral das suas finanças'],
   fixos: ['Salário & Fixos', 'Renda do mês e despesas fixas'],
+  rendaExterna: ['Renda externa', 'Freelance, PJ e serviços'],
   transactions: ['Transações', 'Despesas e receitas por categoria'],
   budgets: ['Orçamentos', 'Limites e metas por categoria'],
   notes: ['Notas', 'Metas, resumos e referências financeiras'],
@@ -1980,6 +2149,7 @@ function renderAll() {
   renderDashboardFixed();
   renderSalaryForm();
   renderFixedList();
+  renderExternalList();
   renderTransactionList();
   renderBudgetList();
   renderBudgetDetail();
@@ -2200,6 +2370,11 @@ function seedData() {
     normalizeFixed({ id: uid() + 'x3', title: 'Celular', amount: 89.90, category: 'Assinaturas', day: 8 }),
     normalizeFixed({ id: uid() + 'x4', title: 'Streaming', amount: 45.90, category: 'Assinaturas', day: 15 })
   ];
+  external = [
+    normalizeExternal({ id: uid() + 'e1', title: 'Landing page — clientX', amount: 1500, client: 'ClientX', due: shiftISO(4), paid: false, notes: '50% na assinatura, 50% na entrega' }),
+    normalizeExternal({ id: uid() + 'e2', title: 'Identidade visual', amount: 3200, client: 'Café Aurora', due: shiftISO(12), paid: false, notes: 'contrato PJ, NF emitida' }),
+    normalizeExternal({ id: uid() + 'e3', title: 'Manutenção mensal', amount: 800, client: 'Loja ABC', due: shiftISO(-3), paid: true })
+  ];
 
   history = [
     {
@@ -2230,7 +2405,7 @@ function seedData() {
 }
 
 function exportData() {
-  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history, salaries, fixed }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history, salaries, fixed, external }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `findek-${todayISO()}.json`;
@@ -2264,6 +2439,7 @@ function importData(file) {
       if (Array.isArray(data.history)) history = data.history;
       if (data.salaries && typeof data.salaries === 'object' && !Array.isArray(data.salaries)) salaries = data.salaries;
       if (Array.isArray(data.fixed)) fixed = data.fixed.map(normalizeFixed).filter(Boolean);
+      if (Array.isArray(data.external)) external = data.external.map(normalizeExternal).filter(Boolean);
       ui.filters.category = '';
       ui.activeNoteId = notes[0]?.id || null;
       ui.activeBudgetId = budgets[0]?.id || null;
@@ -2288,6 +2464,7 @@ function resetAll() {
     history = [];
     salaries = {};
     fixed = [];
+    external = [];
     prefs = Object.assign({}, defaultPrefs);
     categories = CATEGORIES_DEFAULT.slice();
     ui.activeNoteId = null;
@@ -2398,6 +2575,34 @@ function bindEvents() {
       if (!f) return;
       if (fxBtn.dataset.act === 'fx-edit') openFixedForm(f);
       if (fxBtn.dataset.act === 'fx-del') deleteFixed(f.id);
+      return;
+    }
+
+    const extBtn = e.target.closest('#ext-list [data-act]');
+    if (extBtn) {
+      const x = external.find(i => i.id === extBtn.dataset.id);
+      if (!x) return;
+      if (extBtn.dataset.act === 'x-edit') openExternalForm(x);
+      if (extBtn.dataset.act === 'x-del') deleteExternal(x.id);
+      if (extBtn.dataset.act === 'toggle') toggleExternal(x.id);
+      return;
+    }
+
+    const statCard = e.target.closest('[data-stat]');
+    if (statCard) {
+      const jump = STAT_TARGETS[statCard.dataset.stat];
+      if (jump) {
+        const [view, flt] = jump;
+        if (flt) {
+          ui.filters.type = flt.type ?? ui.filters.type;
+          ui.filters.status = flt.status ?? ui.filters.status;
+          ui.filters.category = '';
+          ui.filters.overdue = false;
+        }
+        ui.search = '';
+        el('global-search').value = '';
+        setView(view);
+      }
       return;
     }
 
@@ -2516,12 +2721,20 @@ function bindEvents() {
 
   if (el('salary-form')) el('salary-form').addEventListener('submit', e => { e.preventDefault(); saveSalaryFromForm(); });
   if (el('fixed-form')) el('fixed-form').addEventListener('submit', e => { e.preventDefault(); saveFixedFromForm(); });
+  if (el('ext-form')) el('ext-form').addEventListener('submit', e => { e.preventDefault(); saveExternalFromForm(); });
   if (el('s-month')) el('s-month').addEventListener('input', () => renderSalaryForm());
   if (el('fixed-cancel')) el('fixed-cancel').addEventListener('click', () => {
     ui.editingFixedId = null;
     el('fixed-form').reset();
     el('fixed-form-title').textContent = 'Adicionar gasto fixo';
     el('fixed-cancel').classList.add('is-hidden');
+  });
+  if (el('ext-cancel')) el('ext-cancel').addEventListener('click', () => {
+    ui.editingExternalId = null;
+    el('ext-form').reset();
+    el('x-due').value = shiftISO(0);
+    el('ext-form-title').textContent = 'Adicionar renda externa';
+    el('ext-cancel').classList.add('is-hidden');
   });
 
   el('link-form').addEventListener('submit', e => {
