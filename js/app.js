@@ -1417,12 +1417,13 @@ function renderStats() {
   const extM = extsOfMonth();
   const extPaidN = extM.list.filter(x => x.paid).length;
   const extPendingN = extM.list.filter(x => !x.paid).length;
-  const balance = salary + extM.paid - expenses;
+  const paidFixed = paidFixedTotal();
+  const balance = salary + extM.paid - paidFixed - expenses;
 
   const stats = [
     { stat: 'gastos', lbl: `Gastos · ${monthName}`, val: fmtBRL(expenses), hint: 'Ver e editar as despesas do mês', sub: `${monthTx.filter(t => t.type === 'despesa').length} despesa${monthTx.filter(t => t.type === 'despesa').length !== 1 ? 's' : ''}`, c: 'var(--accent)' },
     { stat: 'receitas', lbl: `Receitas · ${monthName}`, val: fmtBRL(income), hint: 'Ver e editar as receitas do mês', sub: `${monthTx.filter(t => t.type === 'receita').length} entrada${monthTx.filter(t => t.type === 'receita').length !== 1 ? 's' : ''}`, c: 'var(--info)' },
-    { stat: 'saldo', lbl: 'Saldo do mês', val: `${balance < 0 ? '−' : ''}${fmtBRL(Math.abs(balance))}`, hint: 'Saldo = salário + renda externa − gastos do mês', sub: salary > 0 ? 'salário + renda externa − gastos' : 'defina o salário em Salário & Fixos', c: balance >= 0 ? 'var(--ok)' : 'var(--danger)' },
+    { stat: 'saldo', lbl: 'Saldo do mês', val: `${balance < 0 ? '−' : ''}${fmtBRL(Math.abs(balance))}`, hint: 'Saldo = salário + renda externa − gastos fixos pagos − gastos do mês', sub: 'salário + renda externa − fixos pagos − gastos', c: balance >= 0 ? 'var(--ok)' : 'var(--danger)' },
     { stat: 'salario', lbl: `Salário · ${monthName}`, val: fmtBRL(salaryFor()), hint: 'Ajustar o salário do mês', sub: fixed.length ? `${fixed.length} gasto${fixed.length !== 1 ? 's' : ''} fixo${fixed.length !== 1 ? 's' : ''} cadastrado${fixed.length !== 1 ? 's' : ''}` : 'cadastre na área Salário & Fixos', c: 'var(--ok)' },
     { stat: 'fixos', lbl: 'Gastos fixos', val: fmtBRL(fixedTotal()), hint: 'Administrar os gastos fixos', sub: 'recorrentes todo mês — ver Salário & Fixos', c: 'var(--warn)' },
     { stat: 'ext', lbl: `Renda externa · ${monthName}`, val: fmtBRL(extM.total), hint: 'Administrar trabalhos freelance / PJ', sub: extM.count ? `${extPaidN} recebida${extPaidN !== 1 ? 's' : ''} · ${extPendingN} pendente${extPendingN !== 1 ? 's' : ''}` : 'cadastre trabalhos freelance / PJ', c: 'var(--info)' },
@@ -1553,7 +1554,9 @@ function renderSalaryForm() {
   const salary = salaryFor(month);
   const gastos = monthExpenses();
   const ext = extsOfMonth().paid;
-  const saldo = salary + ext - gastos;
+  const paidN = fixed.filter(f => f.paid).length;
+  const paidFixed = paidFixedTotal();
+  const saldo = salary + ext - paidFixed - gastos;
   el('s-month').value = month;
   const amt = el('s-amount');
   if (document.activeElement !== amt) amt.value = salary || '';
@@ -1567,15 +1570,15 @@ function renderSalaryForm() {
       <b class="out">${fmtBRL(ext)}</b>
     </div>
     <div class="salary-line">
-      <span>Gastos fixos do mês</span>
-      <b class="out">${fmtBRL(fixedTotal())}</b>
+      <span>Gastos fixos pagos (${paidN} de ${fixed.length})</span>
+      <b class="out">${fmtBRL(paidFixed)}</b>
     </div>
     <div class="salary-line">
       <span>Gastos do mês (todas as despesas)</span>
       <b class="out">${fmtBRL(gastos)}</b>
     </div>
     <div class="salary-line ${saldo >= 0 ? 'ok' : ''}">
-      <span>Saldo do mês (salário + renda externa − gastos)</span>
+      <span>Saldo do mês (salário + renda externa − fixos pagos − gastos)</span>
       <b>${saldo < 0 ? '−' : ''}${fmtBRL(Math.abs(saldo))}</b>
     </div>`;
 }
@@ -1697,9 +1700,10 @@ function renderSalaryPanel() {
   if (!box) return;
   const salary = salaryFor();
   const total = fixedTotal();
+  const paidFixed = paidFixedTotal();
   const gastos = monthExpenses();
   const ext = extsOfMonth().paid;
-  const saldo = salary + ext - gastos;
+  const saldo = salary + ext - paidFixed - gastos;
   const pct = salary > 0 ? Math.round((total / salary) * 100) : 0;
 
   box.style.setProperty('--p', salary > 0 ? Math.min(pct, 100) : 0);
@@ -1712,12 +1716,12 @@ function renderSalaryPanel() {
     ? [
         { lbl: 'Salário', v: fmtBRL(salary), c: 'var(--ok)' },
         { lbl: 'Renda externa (recebida)', v: fmtBRL(ext), c: 'var(--info)' },
-        { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
+        { lbl: 'Gastos fixos pagos', v: `${fixed.filter(f => f.paid).length}/${fixed.length} · ${fmtBRL(paidFixed)}`, c: 'var(--warn)' },
         { lbl: 'Gastos do mês', v: fmtBRL(gastos), c: 'var(--accent)' },
         { lbl: 'Saldo do mês', v: `${saldo < 0 ? '−' : ''}${fmtBRL(Math.abs(saldo))}`, c: saldo >= 0 ? 'var(--ok)' : 'var(--danger)' }
       ]
     : [
-        { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
+        { lbl: 'Gastos fixos pagos', v: `${fixed.filter(f => f.paid).length}/${fixed.length}`, c: 'var(--warn)' },
         { lbl: 'Salário do mês', v: '— não definido', c: 'var(--muted)' }
       ];
   el('salary-legend').innerHTML = legend.map(l => `
