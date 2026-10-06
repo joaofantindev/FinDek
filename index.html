@@ -34,6 +34,10 @@
         <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-6H3zM13 9h8V3h-8z"/></svg>
         <span>Dashboard</span>
       </button>
+      <button class="nav-item" data-view="fixos">
+        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2.5"/><circle cx="12" cy="12" r="3"/><path d="M5.5 9.5v.01M18.5 14.5v.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span>Salário &amp; Fixos</span>
+      </button>
       <button class="nav-item" data-view="transactions">
         <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"/><path d="M16 3v3h3M9 12h6M9 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <span>Transações</span>
@@ -138,6 +142,70 @@
               <button class="link" data-view-link="notes">ver todas</button>
             </header>
             <ul class="mini-list" id="recent-notes"></ul>
+          </section>
+        </div>
+
+        <div class="grid-2">
+          <section class="panel">
+            <header class="panel-head">
+              <h2>Salário × gastos fixos</h2>
+              <span class="chip" id="salary-chip">—</span>
+            </header>
+            <div class="progress-body">
+              <div class="ring" id="salary-ring"><span id="salary-value">0%</span></div>
+              <ul class="progress-legend" id="salary-legend"></ul>
+            </div>
+          </section>
+
+          <section class="panel">
+            <header class="panel-head">
+              <h2>Gastos fixos</h2>
+              <button class="link" data-view-link="fixos">gerenciar</button>
+            </header>
+            <ul class="mini-list" id="dashboard-fixed-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <section class="view is-hidden" id="view-fixos">
+        <div class="grid-2">
+          <section class="panel">
+            <header class="panel-head">
+              <h2>Salário do mês</h2>
+              <span class="muted">renda principal</span>
+            </header>
+            <form class="block-form" id="salary-form">
+              <div class="form-title">Definir salário</div>
+              <div class="field-2">
+                <label class="field"><span>Mês</span><input type="month" id="s-month" class="select"></label>
+                <label class="field"><span>Salário (R$)</span><input type="number" id="s-amount" placeholder="0,00" min="0" step="0.01" required></label>
+              </div>
+              <button type="submit" class="btn btn-primary">Salvar salário</button>
+            </form>
+            <div class="salary-summary" id="salary-summary"></div>
+          </section>
+
+          <section class="panel">
+            <header class="panel-head">
+              <h2>Gastos fixos</h2>
+              <span class="muted" id="fixed-total">—</span>
+            </header>
+            <form class="block-form" id="fixed-form">
+              <div class="form-title" id="fixed-form-title">Adicionar gasto fixo</div>
+              <div class="field-2">
+                <label class="field"><span>Descrição</span><input type="text" id="fx-title" placeholder="Ex: Aluguel" maxlength="60" autocomplete="off" required></label>
+                <label class="field"><span>Valor (R$)</span><input type="number" id="fx-amount" placeholder="0,00" min="0" step="0.01" required></label>
+              </div>
+              <div class="field-2">
+                <label class="field"><span>Categoria</span><input type="text" id="fx-category" list="category-list" placeholder="Contas" maxlength="40" autocomplete="off"></label>
+                <label class="field"><span>Dia do vencimento</span><input type="number" id="fx-day" placeholder="10" min="1" max="31" required></label>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost btn-sm is-hidden" id="fixed-cancel">Cancelar edição</button>
+                <button type="submit" class="btn btn-primary">Adicionar</button>
+              </div>
+            </form>
+            <ul class="task-list" id="fixed-list"></ul>
           </section>
         </div>
       </section>

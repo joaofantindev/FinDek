@@ -366,6 +366,20 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .item-add{display:grid;grid-template-columns:1fr 142px auto;gap:10px;align-items:end}
 @media(max-width:860px){.item-add{grid-template-columns:1fr}}
 
+/* ---------- fixos: salário e gastos fixos ---------- */
+.block-form{display:flex;flex-direction:column;gap:12px;padding:12px;margin-bottom:14px;border:1px solid var(--border);border-radius:11px;background:var(--bg-2)}
+.block-form .btn{align-self:flex-start}
+.form-title{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--accent);font-weight:700}
+.form-actions{display:flex;gap:8px;justify-content:flex-end}
+.form-actions .btn{align-self:auto}
+.salary-summary{display:flex;flex-direction:column;gap:7px}
+.salary-line{display:flex;align-items:center;gap:8px;font-size:13px;padding:8px 10px;border-radius:9px;background:var(--bg-2);border:1px solid var(--border)}
+.salary-line span{color:var(--muted)}
+.salary-line b{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700}
+.salary-line b.out{color:var(--warn)}
+.salary-line.ok{border-left-color:var(--ok)}
+.salary-line.ok b{color:var(--ok)}
+
 /* ---------- wallpaper ---------- */
 html[data-wall="on"] body{
   background-image:var(--wallpaper);background-size:cover;background-position:center center;

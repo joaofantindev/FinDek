@@ -6,7 +6,9 @@ const K = {
   categories: 'findek.categories',
   budgets: 'findek.budgets',
   history: 'findek.history',
-  wallpaper: 'findek.wallpaper'
+  wallpaper: 'findek.wallpaper',
+  salary: 'findek.salary',
+  fixed: 'findek.fixed'
 };
 
 const load = (k, fallback) => {
@@ -96,6 +98,11 @@ let prefs = Object.assign({}, defaultPrefs, load(K.prefs, {}));
 let budgets = load(K.budgets, []);
 let history = load(K.history, []);
 let wallpaper = load(K.wallpaper, null);
+let salaries = (() => {
+  const raw = load(K.salary, null);
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+})();
+let fixed = (Array.isArray(load(K.fixed, [])) ? load(K.fixed, []) : []).map(normalizeFixed).filter(Boolean);
 
 const slug = name => String(name || '').trim().toLowerCase();
 
@@ -154,6 +161,7 @@ let ui = {
   editingBudgetId: null,
   editingGoalId: null,
   editingGoalBudgetId: null,
+  editingFixedId: null,
   openGroups: new Set(),
   confirmAction: null
 };
@@ -165,12 +173,16 @@ const persistAll = () => {
   save(K.categories, categories);
   save(K.budgets, budgets);
   save(K.history, history);
+  save(K.salary, salaries);
+  save(K.fixed, fixed);
 };
 const persistTransactions = () => save(K.transactions, transactions);
 const persistNotes = () => save(K.notes, notes);
 const persistCategories = () => save(K.categories, categories);
 const persistBudgets = () => save(K.budgets, budgets);
 const persistHistory = () => save(K.history, history);
+const persistSalary = () => save(K.salary, salaries);
+const persistFixed = () => save(K.fixed, fixed);
 
 /* ================= dom ================= */
 const $ = sel => document.querySelector(sel);
@@ -1386,6 +1398,8 @@ function renderStats() {
     { lbl: `Gastos · ${monthName}`, val: fmtBRL(expenses), sub: `${monthTx.filter(t => t.type === 'despesa').length} despesa${monthTx.filter(t => t.type === 'despesa').length !== 1 ? 's' : ''}`, c: 'var(--accent)' },
     { lbl: `Receitas · ${monthName}`, val: fmtBRL(income), sub: `${monthTx.filter(t => t.type === 'receita').length} entrada${monthTx.filter(t => t.type === 'receita').length !== 1 ? 's' : ''}`, c: 'var(--info)' },
     { lbl: 'Saldo do mês', val: `${balance < 0 ? '−' : ''}${fmtBRL(Math.abs(balance))}`, sub: balance >= 0 ? 'positivo — bem!' : 'negativo — atenção', c: balance >= 0 ? 'var(--ok)' : 'var(--danger)' },
+    { lbl: `Salário · ${monthName}`, val: fmtBRL(salaryFor()), sub: fixed.length ? `${fixed.length} gasto${fixed.length !== 1 ? 's' : ''} fixo${fixed.length !== 1 ? 's' : ''} cadastrado${fixed.length !== 1 ? 's' : ''}` : 'cadastre na área Salário & Fixos', c: 'var(--ok)' },
+    { lbl: 'Gastos fixos', val: fmtBRL(fixedTotal()), sub: 'recorrentes todo mês — ver Salário & Fixos', c: 'var(--warn)' },
     { lbl: 'Contas pendentes', val: fmtBRL(pendingSum), sub: `${pending.length} transação${pending.length !== 1 ? 'ões' : ''} para pagar`, c: pending.length ? 'var(--warn)' : 'var(--muted)' },
     { lbl: 'Orçamento usado', val: budgetTotal ? `${usage}%` : '—', sub: budgetTotal ? `${fmtBRL(spentTotal)} de ${fmtBRL(budgetTotal)}` : 'nenhum orçamento ativo', c: usage > 100 ? 'var(--danger)' : 'var(--accent)' },
     { lbl: 'Notas', val: notes.length, sub: `${notes.filter(n => n.pinned).length} fixada${notes.filter(n => n.pinned).length !== 1 ? 's' : ''}`, c: 'var(--accent)' }
@@ -1487,6 +1501,184 @@ function renderRecentNotes() {
     </li>`).join('');
 }
 
+/* ================= fixos (salário + gastos fixos) ================= */
+function normalizeFixed(f) {
+  if (!f || !f.title) return null;
+  return {
+    id: f.id || uid(),
+    title: String(f.title).trim(),
+    amount: Math.max(0, Number(f.amount) || 0),
+    category: String(f.category || '').trim(),
+    day: Math.min(31, Math.max(1, Number(f.day) || 1)),
+    createdAt: f.createdAt || Date.now()
+  };
+}
+
+const salaryFor = (month = monthKey()) => Math.max(0, Number(salaries[month]) || 0);
+const fixedTotal = () => fixed.reduce((s, f) => s + f.amount, 0);
+
+function renderSalaryForm() {
+  const month = el('s-month').value || monthKey();
+  const salary = salaryFor(month);
+  el('s-month').value = month;
+  const amt = el('s-amount');
+  if (document.activeElement !== amt) amt.value = salary || '';
+  el('salary-summary').innerHTML = `
+    <div class="salary-line">
+      <span>Salário de <strong>${escapeHtml(monthNameShort(month))}</strong></span>
+      <b>${fmtBRL(salary)}</b>
+    </div>
+    <div class="salary-line">
+      <span>Gastos fixos do mês</span>
+      <b class="out">${fmtBRL(fixedTotal())}</b>
+    </div>
+    <div class="salary-line ok">
+      <span>Disponível após os fixos</span>
+      <b>${fmtBRL(salary - fixedTotal())}</b>
+    </div>`;
+}
+
+const monthNameShort = m => {
+  const [y, mo] = m.split('-').map(Number);
+  return new Date(y, mo - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+};
+
+function saveSalaryFromForm() {
+  const month = el('s-month').value;
+  if (!month) { toast('Escolha o mês', 'warn'); return; }
+  salaries[month] = Math.max(0, parseFloat(el('s-amount').value) || 0);
+  persistSalary();
+  renderAll();
+  toast('Salário do mês salvo', 'ok');
+  setStatus(`Salário de ${monthNameShort(month)} definido`);
+}
+
+function openFixedForm(f = null) {
+  ui.editingFixedId = f ? f.id : null;
+  el('fx-title').value = f ? f.title : '';
+  el('fx-amount').value = f ? f.amount : '';
+  el('fx-category').value = f ? (f.category || '') : '';
+  el('fx-day').value = f ? f.day : '';
+  el('fixed-form-title').textContent = f ? `Editar "${f.title}"` : 'Adicionar gasto fixo';
+  el('fixed-cancel').classList.toggle('is-hidden', !f);
+  el('fx-title').focus();
+}
+
+function saveFixedFromForm() {
+  const title = el('fx-title').value.trim();
+  if (!title) { el('fx-title').focus(); return; }
+  const data = {
+    title,
+    amount: Math.max(0, parseFloat(el('fx-amount').value) || 0),
+    category: el('fx-category').value.trim(),
+    day: Math.min(31, Math.max(1, Number(el('fx-day').value) || 1))
+  };
+
+  if (ui.editingFixedId) {
+    const f = fixed.find(x => x.id === ui.editingFixedId);
+    if (f) Object.assign(f, data);
+    toast('Gasto fixo atualizado', 'ok');
+  } else {
+    fixed.push(normalizeFixed({ ...data, id: uid(), createdAt: Date.now() }));
+    toast('Gasto fixo adicionado', 'ok');
+  }
+  ui.editingFixedId = null;
+  el('fx-title').value = '';
+  el('fx-amount').value = '';
+  el('fx-category').value = '';
+  el('fx-day').value = '';
+  el('fixed-form-title').textContent = 'Adicionar gasto fixo';
+  el('fixed-cancel').classList.add('is-hidden');
+  persistFixed();
+  renderAll();
+  el('fx-title').focus();
+}
+
+function deleteFixed(id) {
+  const f = fixed.find(x => x.id === id);
+  if (!f) return;
+  confirmAction('Excluir gasto fixo', `Remover "${f.title}" (${fmtBRL(f.amount)}) dos gastos fixos?`, () => {
+    fixed = fixed.filter(x => x.id !== id);
+    if (ui.editingFixedId === id) ui.editingFixedId = null;
+    persistFixed();
+    renderAll();
+    toast('Gasto fixo excluído', 'warn');
+  });
+}
+
+function renderFixedList() {
+  const box = el('fixed-list');
+  if (!box) return;
+  const total = fixedTotal();
+  if (el('fixed-total')) el('fixed-total').textContent = total ? `${fmtBRL(total)}/mês` : 'nenhum cadastrado';
+  if (!fixed.length) {
+    box.innerHTML = '<li class="empty">Nenhum gasto fixo cadastrado. Adicione os que se repetem todo mês (aluguel, internet, plano...).</li>';
+    return;
+  }
+  const sorted = [...fixed].sort((a, b) => a.day - b.day || b.amount - a.amount);
+  box.innerHTML = sorted.map(f => `
+    <div class="task" style="--p:${categoryColor(f.category)}">
+      <div class="task-info">
+        <span class="t-title">${escapeHtml(f.title)}</span>
+        <span class="t-meta">
+          <span class="tag">dia ${f.day}</span>
+          ${f.category ? `<span class="tag">${escapeHtml(f.category)}</span>` : ''}
+        </span>
+      </div>
+      <span class="t-amount">${fmtBRL(f.amount)}</span>
+      <div class="task-actions">
+        <button data-act="fx-edit" data-id="${f.id}" title="Editar">
+          <svg viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="M14 6l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+        </button>
+        <button data-act="fx-del" data-id="${f.id}" class="del" title="Excluir">
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>`).join('');
+}
+
+/* painel do dashboard: salário × gastos fixos */
+function renderSalaryPanel() {
+  const box = el('salary-ring');
+  if (!box) return;
+  const salary = salaryFor();
+  const total = fixedTotal();
+  const pct = salary > 0 ? Math.round((total / salary) * 100) : 0;
+
+  box.style.setProperty('--p', salary > 0 ? Math.min(pct, 100) : 0);
+  el('salary-value').textContent = salary > 0 ? `${pct}%` : '—';
+  el('salary-chip').textContent = salary > 0
+    ? `${fmtBRL(total)} de ${fmtBRL(salary)}`
+    : (fixed.length ? 'salário não cadastrado' : 'sem gastos fixos');
+
+  const legend = salary > 0
+    ? [
+        { lbl: 'Salário', v: fmtBRL(salary), c: 'var(--ok)' },
+        { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
+        { lbl: 'Disponível', v: fmtBRL(salary - total), c: pct > 100 ? 'var(--danger)' : 'var(--accent)' }
+      ]
+    : [
+        { lbl: 'Gastos fixos', v: fmtBRL(total), c: 'var(--warn)' },
+        { lbl: 'Salário do mês', v: '— não definido', c: 'var(--muted)' }
+      ];
+  el('salary-legend').innerHTML = legend.map(l => `
+    <li><span class="sw" style="background:${l.c}"></span>${l.lbl}<span class="v">${l.v}</span></li>`).join('');
+}
+
+function renderDashboardFixed() {
+  const box = el('dashboard-fixed-list');
+  if (!box) return;
+  const list = [...fixed].sort((a, b) => b.amount - a.amount).slice(0, 6);
+  if (!list.length) {
+    box.innerHTML = '<li class="empty">Cadastre os gastos fixos na área <b>Salário & Fixos</b>.</li>';
+    return;
+  }
+  box.innerHTML = list.map(f => `
+    <li>
+      <span class="t">${escapeHtml(f.title)}</span>
+      <span class="r"><span class="tag">dia ${f.day}</span>&nbsp;${fmtBRL(f.amount)}</span>
+    </li>`).join('');
+}
 /* ================= notes ================= */
 /* ================= markdown ================= */
 const safeUrl = u => /^(https?:\/\/|mailto:|#|\/|\.{1,2}\/)/i.test(String(u).trim()) ? String(u).trim() : '#';
@@ -1756,6 +1948,7 @@ function updateNote(patch) {
 /* ================= views ================= */
 const VIEW_META = {
   dashboard: ['Dashboard', 'Visão geral das suas finanças'],
+  fixos: ['Salário & Fixos', 'Renda do mês e despesas fixas'],
   transactions: ['Transações', 'Despesas e receitas por categoria'],
   budgets: ['Orçamentos', 'Limites e metas por categoria'],
   notes: ['Notas', 'Metas, resumos e referências financeiras'],
@@ -1783,6 +1976,10 @@ function renderAll() {
   renderCategoryBars();
   renderUpcoming();
   renderRecentNotes();
+  renderSalaryPanel();
+  renderDashboardFixed();
+  renderSalaryForm();
+  renderFixedList();
   renderTransactionList();
   renderBudgetList();
   renderBudgetDetail();
@@ -1996,6 +2193,14 @@ function seedData() {
   ];
   ui.activeBudgetId = budgets[0].id;
 
+  salaries = { [monthKey()]: 7500 };
+  fixed = [
+    normalizeFixed({ id: uid() + 'x1', title: 'Aluguel', amount: 2800, category: 'Moradia', day: 10 }),
+    normalizeFixed({ id: uid() + 'x2', title: 'Internet fibra', amount: 99.90, category: 'Contas', day: 5 }),
+    normalizeFixed({ id: uid() + 'x3', title: 'Celular', amount: 89.90, category: 'Assinaturas', day: 8 }),
+    normalizeFixed({ id: uid() + 'x4', title: 'Streaming', amount: 45.90, category: 'Assinaturas', day: 15 })
+  ];
+
   history = [
     {
       id: uid() + 'h1', key: 'transaction:' + transactions[4].id, kind: 'transaction', budgetId: null,
@@ -2025,7 +2230,7 @@ function seedData() {
 }
 
 function exportData() {
-  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ version: 2, app: 'findek', transactions, notes, prefs, categories, budgets, history, salaries, fixed }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `findek-${todayISO()}.json`;
@@ -2057,6 +2262,8 @@ function importData(file) {
         budgets = data.budgets.map(b => Object.assign({ items: [], links: [], note: { content: '' } }, b));
       }
       if (Array.isArray(data.history)) history = data.history;
+      if (data.salaries && typeof data.salaries === 'object' && !Array.isArray(data.salaries)) salaries = data.salaries;
+      if (Array.isArray(data.fixed)) fixed = data.fixed.map(normalizeFixed).filter(Boolean);
       ui.filters.category = '';
       ui.activeNoteId = notes[0]?.id || null;
       ui.activeBudgetId = budgets[0]?.id || null;
@@ -2079,6 +2286,8 @@ function resetAll() {
     notes = [];
     budgets = [];
     history = [];
+    salaries = {};
+    fixed = [];
     prefs = Object.assign({}, defaultPrefs);
     categories = CATEGORIES_DEFAULT.slice();
     ui.activeNoteId = null;
@@ -2180,6 +2389,15 @@ function bindEvents() {
           setStatus(`Categoria "${name}" excluída`);
         }
       );
+      return;
+    }
+
+    const fxBtn = e.target.closest('#fixed-list [data-act]');
+    if (fxBtn) {
+      const f = fixed.find(x => x.id === fxBtn.dataset.id);
+      if (!f) return;
+      if (fxBtn.dataset.act === 'fx-edit') openFixedForm(f);
+      if (fxBtn.dataset.act === 'fx-del') deleteFixed(f.id);
       return;
     }
 
@@ -2295,6 +2513,16 @@ function bindEvents() {
 
   el('budget-form').addEventListener('submit', e => { e.preventDefault(); saveBudgetFromForm(); });
   el('goal-item-form').addEventListener('submit', e => { e.preventDefault(); saveGoalFromForm(); });
+
+  if (el('salary-form')) el('salary-form').addEventListener('submit', e => { e.preventDefault(); saveSalaryFromForm(); });
+  if (el('fixed-form')) el('fixed-form').addEventListener('submit', e => { e.preventDefault(); saveFixedFromForm(); });
+  if (el('s-month')) el('s-month').addEventListener('input', () => renderSalaryForm());
+  if (el('fixed-cancel')) el('fixed-cancel').addEventListener('click', () => {
+    ui.editingFixedId = null;
+    el('fixed-form').reset();
+    el('fixed-form-title').textContent = 'Adicionar gasto fixo';
+    el('fixed-cancel').classList.add('is-hidden');
+  });
 
   el('link-form').addEventListener('submit', e => {
     e.preventDefault();
